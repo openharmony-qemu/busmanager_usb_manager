@@ -14,17 +14,18 @@
  */
 
 import { AlertDialog } from '@ohos.arkui.advanced.Dialog'
-import { terminateDialog } from '../util/DialogUtil';
-import serial from '@ohos.busManager.serial'
+import { SerialDialogRequest } from '../util/SerialDialogRequest';
+import { BusinessError } from '@ohos.base';
 
-@Entry
+@Entry({ useSharedStorage: true })
 @Component
 struct SerialDialogComponent {
+  @LocalStorageProp('serialRequest') private request: SerialDialogRequest = new SerialDialogRequest();
+
   confirmDialogController: CustomDialogController = new CustomDialogController({
     builder: AlertDialog({
       primaryTitle: $r('app.string.serial_right_title'),
-      content: $r('app.string.usb_right_content', globalThis.want?.parameters?.['appName'],
-        globalThis.want?.parameters?.['portName']),
+      content: $r('app.string.usb_right_content', this.request.appName, this.request.portName),
       primaryButton: {
         value: $r('app.string.notAllowButton'),
         action: () => {
@@ -35,20 +36,7 @@ struct SerialDialogComponent {
       secondaryButton: {
         value: $r('app.string.allowButton'),
         action: () => {
-          try {
-            let tokenId: string = globalThis.want.parameters['tokenId'];
-            let deviceId: string = globalThis.want.parameters['deviceId'];
-            console.info('SerialRight allowed');
-            serial.addPortAuthorization(tokenId, deviceId).then(() => {
-              console.info('SerialRight addPortAuthorization success');
-            }).catch((err: Error) => {
-              console.error('SerialRight addPortAuthorization failed: ' + JSON.stringify(err));
-            });
-          } catch (err) {
-            console.error('SerialRight ConfirmDialog onClick error: ' + JSON.stringify(err));
-          } finally {
-            this.closeDialog()
-          }
+          this.authorizePort();
         }
       },
     }),
@@ -59,13 +47,25 @@ struct SerialDialogComponent {
     }
   })
 
-  closeDialog() {
+  async authorizePort(): Promise<void> {
+    try {
+      await this.request.authorizePort();
+      console.info('SerialRight addPortAuthorization completed');
+    } catch (error) {
+      let err: BusinessError = error;
+      console.error('SerialRight addPortAuthorization failed: code=' + err.code + ', message=' + err.message);
+    }
+  }
+
+  closeDialog(): void {
     console.info('SerialRight close dialog');
-    terminateDialog();
+    this.request.close().catch((error: BusinessError) => {
+      console.error('SerialRight close own session failed: code=' + error.code + ', message=' + error.message);
+    });
   }
 
   aboutToAppear(): void {
-    console.info('SerialRight show dialog', JSON.stringify(globalThis.want));
+    console.info('SerialRight show dialog for port=' + this.request.portName);
     setTimeout(() => {
         this.confirmDialogController.open();
     });

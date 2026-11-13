@@ -15,35 +15,54 @@
 
 import UIExtensionAbility from '@ohos.app.ability.UIExtensionAbility';
 import UIExtensionContentSession from '@ohos.app.ability.UIExtensionContentSession';
+import Want from '@ohos.app.ability.Want';
 import rpc from '@ohos.rpc';
 import {terminateDialog} from '../util/DialogUtil';
+import {SerialDialogRequest} from '../util/SerialDialogRequest';
 
 let TAG: string = 'UsbService';
 
 const BG_COLOR = '#00000000';
 const COLOR_MODE_NOT_SET = -1;
 
+function serialParameter(want: Want, key: string): string {
+  let value = want.parameters?.[key];
+  return typeof value === 'string' ? value : '';
+}
+
 export default class UsbDialogAbility extends UIExtensionAbility {
   /**
    * Lifecycle function, called back when a service extension is started for initialization.
    */
-  onSessionCreate(want, session): void {
+  onSessionCreate(want: Want, session: UIExtensionContentSession): void {
     console.log(TAG + 'UsbDialogAbility onSessionCreate');
     console.log(JSON.stringify(want));
 
-    globalThis.extensionContext = this.context;
-    globalThis.want = want;
-    globalThis.windowNum = 0;
-
+    let isSerial: boolean = want.parameters?.['portName'] !== undefined;
     try {
-      AppStorage.setOrCreate('session', session);
-      let page = want?.parameters?.['portName'] !== undefined ? 'pages/SerialDialog' : 'pages/UsbDialog';
-      (session as UIExtensionContentSession)?.loadContent(page);
-      (session as UIExtensionContentSession)?.setWindowBackgroundColor(BG_COLOR);
+      if (isSerial) {
+        let request = new SerialDialogRequest(serialParameter(want, 'tokenId'), serialParameter(want, 'deviceId'),
+          serialParameter(want, 'appName'), serialParameter(want, 'portName'), () => session.terminateSelf());
+        session.loadContent('pages/SerialDialog', new LocalStorage({ serialRequest: request }));
+      } else {
+        // Preserve the existing USB route; Serial never replaces its globals.
+        globalThis.extensionContext = this.context;
+        globalThis.want = want;
+        globalThis.windowNum = 0;
+        AppStorage.setOrCreate('session', session);
+        session.loadContent('pages/UsbDialog');
+      }
+      session.setWindowBackgroundColor(BG_COLOR);
       this.context?.getApplicationContext()?.setColorMode(COLOR_MODE_NOT_SET);
     } catch (error) {
       console.error(TAG + 'UsbFunctionSwitchAbility onSessionCreate error: ' + error?.code);
-      terminateDialog();
+      if (isSerial) {
+        session.terminateSelf().catch((closeError: Error) => {
+          console.error(TAG + 'terminate own Serial session failed: ' + JSON.stringify(closeError));
+        });
+      } else {
+        terminateDialog();
+      }
     }
   }
 
